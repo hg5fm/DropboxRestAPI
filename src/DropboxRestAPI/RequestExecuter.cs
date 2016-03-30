@@ -116,7 +116,7 @@ namespace DropboxRestAPI
             }
 
             if (statusCode == 0)
-                throw new HttpException((int) statusCode, content) {Attempts = 1};
+                throw new HttpException((int)statusCode, content) { Attempts = 1 };
 
             if ((int)statusCode == 429 || statusCode == HttpStatusCode.ServiceUnavailable)
             {
@@ -126,21 +126,26 @@ namespace DropboxRestAPI
                     if (retryAfter.Value != null && retryAfter.Value.Any())
                     {
                         throw new RetryLaterException
-                            {
-                                RetryAfter = decimal.Parse(retryAfter.Value.First(), CultureInfo.InvariantCulture)
-                            };
+                        {
+                            RetryAfter = decimal.Parse(retryAfter.Value.First(), CultureInfo.InvariantCulture)
+                        };
                     }
                 }
-                throw new RetryLaterException {RetryAfter = 10};
+                throw new RetryLaterException { RetryAfter = 10 };
             }
-            if ((int) statusCode == 507)
+            if ((int)statusCode == 507)
             {
                 throw new NotEnoughQuotaException();
             }
-            if (statusCode == HttpStatusCode.Unauthorized ||
-                statusCode == HttpStatusCode.Forbidden ||
-                statusCode == HttpStatusCode.BadRequest ||
-                statusCode == HttpStatusCode.ServiceUnavailable)
+
+
+            if (statusCode == HttpStatusCode.InternalServerError ||
+                statusCode == HttpStatusCode.BadGateway)
+            {
+                throw new HttpException((int)statusCode, content ?? httpResponse.ReasonPhrase) { Attempts = int.MaxValue };
+            }
+
+            if ((int)statusCode >= 400)
             {
                 Error errorInfo = null;
 
@@ -161,23 +166,19 @@ namespace DropboxRestAPI
                 if (!string.IsNullOrEmpty(content))
                     errorInfo = JsonConvert.DeserializeObject<Error>(content);
                 if (errorInfo == null || errorInfo.error == null)
-                    throw new HttpException((int) statusCode, content) {Attempts = 1};
+                    throw new HttpException((int)statusCode, content ?? httpResponse.ReasonPhrase) { Attempts = 1 };
 
                 string error = errorInfo.error;
                 if (!string.IsNullOrEmpty(errorInfo.error_description))
                     error = string.Format("{0}: {1}", errorInfo.error, errorInfo.error_description);
 
-                throw new ServiceErrorException((int) statusCode, error)
-                    {
-                        ErrorCode = errorInfo.error,
-                        ErrorDescription = errorInfo.error_description
-                    };
+                throw new ServiceErrorException((int)statusCode, error)
+                {
+                    ErrorCode = httpResponse.ReasonPhrase,
+                    ErrorDescription = errorInfo.error_description
+                };
             }
-            if (statusCode == HttpStatusCode.InternalServerError ||
-                statusCode == HttpStatusCode.BadGateway)
-            {
-                throw new HttpException((int) statusCode, content) {Attempts = int.MaxValue};
-            }
+
 
             return content;
         }

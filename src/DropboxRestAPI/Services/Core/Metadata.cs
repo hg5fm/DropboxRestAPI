@@ -33,6 +33,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using DropboxRestAPI.Models.Core;
 using DropboxRestAPI.RequestsGenerators.Core;
+using DropboxRestAPI.Utils;
 using Newtonsoft.Json;
 
 namespace DropboxRestAPI.Services.Core
@@ -58,29 +59,47 @@ namespace DropboxRestAPI.Services.Core
         {
             MetaData fileMetadata = null;
             string etag = "";
-            long? length;
-            using (var restResponse = await _requestExecuter.Execute(() => _requestGenerator.Files(_options.Root, path, rev, asTeamMember), cancellationToken: cancellationToken).ConfigureAwait(false))
+            long? length = null;
+            try
             {
-                await _requestExecuter.CheckForError(restResponse, false, cancellationToken).ConfigureAwait(false);
-
-                length = restResponse.Content.Headers.ContentLength;
-                if (length == null)
+                using (var restResponse = await _requestExecuter.Execute(
+                                () => _requestGenerator.Files(_options.Root, path, rev, asTeamMember),
+                                cancellationToken: cancellationToken).ConfigureAwait(false))
                 {
-                    IEnumerable<string> metadatas;
-                    if (restResponse.Headers.TryGetValues("x-dropbox-metadata", out metadatas))
+                    await _requestExecuter.CheckForError(restResponse, false, cancellationToken).ConfigureAwait(false);
+                    length = restResponse.Content.Headers.ContentLength;
+                    if (length == null)
                     {
-                        string metadata = metadatas.FirstOrDefault();
-                        if (metadata != null)
+                        IEnumerable<string> metadatas;
+                        if (restResponse.Headers.TryGetValues("x-dropbox-metadata", out metadatas))
                         {
-                            fileMetadata = JsonConvert.DeserializeObject<MetaData>(metadata);
-                            length = fileMetadata.bytes;
+                            string metadata = metadatas.FirstOrDefault();
+                            if (metadata != null)
+                            {
+                                fileMetadata = JsonConvert.DeserializeObject<MetaData>(metadata);
+                                length = fileMetadata.bytes;
+                            }
                         }
                     }
+                    IEnumerable<string> etags;
+                    if (restResponse.Headers.TryGetValues("etag", out etags))
+                        etag = etags.FirstOrDefault();
                 }
-                IEnumerable<string> etags;
-                if (restResponse.Headers.TryGetValues("etag", out etags))
-                    etag = etags.FirstOrDefault();
             }
+            catch (HttpException)
+            {
+                // Retry the Files request now with GET method in order to retrieve the full error message from the request                
+                using (var restResponseWithContent = await _requestExecuter.Execute(
+                    () => _requestGenerator.Files(_options.Root, path, rev, asTeamMember, true),
+                    cancellationToken: cancellationToken).ConfigureAwait(false))
+                {
+                    await
+                        _requestExecuter.CheckForError(restResponseWithContent, false, cancellationToken)
+                            .ConfigureAwait(false);
+                }
+                throw;
+            }
+
 
             long read = 0;
             bool hasMore = true;
@@ -186,10 +205,10 @@ namespace DropboxRestAPI.Services.Core
             var restResponse = await _requestExecuter.Execute(() => _requestGenerator.Previews(Options.AutoRoot, path, rev, asTeamMember), cancellationToken: cancellationToken).ConfigureAwait(false);
 
             var preview = new Preview
-                {
-                    Content = await restResponse.Content.ReadAsStreamAsync().ConfigureAwait(false),
-                    ContentType = restResponse.Content.Headers.ContentType.MediaType
-                };
+            {
+                Content = await restResponse.Content.ReadAsStreamAsync().ConfigureAwait(false),
+                ContentType = restResponse.Content.Headers.ContentType.MediaType
+            };
             return preview;
         }
 

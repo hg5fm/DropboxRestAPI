@@ -30,7 +30,7 @@ namespace DropboxRestAPI.RequestsGenerators.Core
 {
     public interface IMetadataRequestGenerator
     {
-        IRequest Files(string root, string path, string rev = null, string asTeamMember = null);
+        IRequest Files(string root, string path, string rev = null, string asTeamMember = null, bool useGetHttpMethod = false);
         IRequest FilesRange(string root, string path, long from, long to, string etag, string rev = null, string asTeamMember = null);
 
         IRequest FilesPut(string root, Stream content, string path, string locale = null, bool overwrite = true, string parent_rev = null, bool autorename = true, string asTeamMember = null);
